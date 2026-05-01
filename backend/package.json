@@ -1,0 +1,21 @@
+{
+  "name": "n-care-hospital-api",
+  "version": "1.0.0",
+  "description": "N Care Hospital — Express backend (OTP, booking, contact)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "nodemailer": "^6.9.16",
+    "twilio": "^5.4.0"
+  }
+}
