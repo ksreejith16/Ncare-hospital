@@ -31,13 +31,15 @@ router.post('/', asyncHandler(async (req, res) => {
     await Contact.create(record);
   }
 
+  const notifyTo = process.env.HOSPITAL_NOTIFICATION_EMAIL || 'info@ncarehospital.com';
+  console.log(`[contact] ${record.type} from ${name} <+91 ${cleanMobile}> → notifying ${notifyTo}`);
   sendMail({
-    to: process.env.HOSPITAL_NOTIFICATION_EMAIL || 'info@ncarehospital.com',
+    to: notifyTo,
     subject: `[${record.type}] ${subject || 'Website message'} — ${name}`,
     text:
       `Type: ${record.type}\nName: ${name}\nMobile: +91 ${cleanMobile}\nEmail: ${email || '—'}\n` +
       `Subject: ${subject || '—'}\n\nMessage:\n${message || '—'}`,
-  }).catch(() => {});
+  }).catch((err) => console.error('[contact] notify mail failed:', err.message));
 
   res.json({ ok: true });
 }));
