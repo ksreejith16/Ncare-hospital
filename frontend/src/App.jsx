@@ -13,6 +13,8 @@ import Contact from './pages/Contact.jsx';
 import Emergency from './pages/Emergency.jsx';
 import Services from './pages/Services.jsx';
 import Gallery from './pages/Gallery.jsx';
+import AdminLogin from './pages/admin/Login.jsx';
+import AdminDashboard from './pages/admin/Dashboard.jsx';
 import Careers from './pages/Careers.jsx';
 import Blog from './pages/Blog.jsx';
 import PatientPortal from './pages/PatientPortal.jsx';
@@ -47,6 +49,8 @@ export default function App() {
         <Route path="/patient-portal" element={<PatientPortal />} />
         <Route path="/privacy-policy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin" element={<AdminDashboard />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Layout>

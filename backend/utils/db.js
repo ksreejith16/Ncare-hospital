@@ -5,9 +5,10 @@ import mongoose from 'mongoose';
 
 export const inMemory = {
   enabled: false,
-  otps: new Map(),         // mobile -> { otp, token, expiresAt, attempts }
+  otps: new Map(),         // token -> { mobile, otpHash, expiresAt, attempts, verified }
   appointments: [],
   contacts: [],
+  admins: [],
 };
 
 export async function connectDb() {
@@ -26,7 +27,10 @@ export async function connectDb() {
   }
 }
 
-// Schemas (only used if MongoDB connected)
+// =========================================================
+// Schemas (only used when MongoDB is connected)
+// =========================================================
+
 const otpSchema = new mongoose.Schema({
   mobile:    { type: String, index: true, required: true },
   otpHash:   { type: String, required: true },
@@ -36,20 +40,31 @@ const otpSchema = new mongoose.Schema({
   verified:  { type: Boolean, default: false },
 }, { timestamps: true });
 
+export const APPOINTMENT_STATUSES = [
+  'pending',     // patient just booked, awaiting hospital confirmation
+  'confirmed',   // hospital confirmed
+  'completed',   // patient was seen
+  'cancelled',   // patient or hospital cancelled
+  'no-show',     // patient didn't turn up
+];
+
 const apptSchema = new mongoose.Schema({
-  bookingId:  { type: String, unique: true, required: true },
-  department: String,
-  doctor:     String,
-  date:       String,
-  time:       String,
-  name:       String,
-  age:        Number,
-  gender:     String,
-  mobile:     { type: String, index: true },
-  email:      String,
-  notes:      String,
-  status:     { type: String, default: 'pending' },
+  bookingId:  { type: String, unique: true, required: true, index: true },
+  department: { type: String, required: true, index: true },
+  doctor:     { type: String, default: '', index: true },
+  date:       { type: String, required: true, index: true },   // YYYY-MM-DD
+  time:       { type: String, required: true },                // e.g. "11:00 AM"
+  name:       { type: String, required: true },
+  age:        { type: Number, required: true, min: 0, max: 120 },
+  gender:     { type: String, required: true, enum: ['Male', 'Female', 'Other'] },
+  mobile:     { type: String, required: true, index: true },
+  email:      { type: String, default: '' },
+  notes:      { type: String, default: '' },
+  status:     { type: String, default: 'pending', enum: APPOINTMENT_STATUSES, index: true },
+  adminNotes: { type: String, default: '' },
 }, { timestamps: true });
+
+apptSchema.index({ doctor: 1, date: 1, time: 1 }, { unique: false });
 
 const contactSchema = new mongoose.Schema({
   type:    { type: String, default: 'contact' },  // 'contact' or 'callback'
@@ -58,8 +73,18 @@ const contactSchema = new mongoose.Schema({
   email:   String,
   subject: String,
   message: String,
+  read:    { type: Boolean, default: false, index: true },
 }, { timestamps: true });
 
-export const Otp = mongoose.models.Otp || mongoose.model('Otp', otpSchema);
+const adminSchema = new mongoose.Schema({
+  username:     { type: String, required: true, unique: true, index: true },
+  passwordHash: { type: String, required: true },
+  name:         { type: String, default: '' },
+  role:         { type: String, default: 'admin', enum: ['admin', 'superadmin'] },
+  lastLoginAt:  Date,
+}, { timestamps: true });
+
+export const Otp         = mongoose.models.Otp         || mongoose.model('Otp', otpSchema);
 export const Appointment = mongoose.models.Appointment || mongoose.model('Appointment', apptSchema);
-export const Contact = mongoose.models.Contact || mongoose.model('Contact', contactSchema);
+export const Contact     = mongoose.models.Contact     || mongoose.model('Contact', contactSchema);
+export const Admin       = mongoose.models.Admin       || mongoose.model('Admin', adminSchema);

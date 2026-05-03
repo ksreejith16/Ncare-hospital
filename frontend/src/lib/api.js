@@ -16,10 +16,12 @@ async function request(path, opts = {}) {
 }
 
 export const api = {
+  // OTP routes are kept available for future re-enable (currently unused).
   sendOtp:    (mobile) => request('/api/otp/send',    { method: 'POST', body: JSON.stringify({ mobile }) }),
   verifyOtp:  (token, otp, mobile) => request('/api/otp/verify',  { method: 'POST', body: JSON.stringify({ token, otp, mobile }) }),
-  bookAppt:   (sessionToken, payload) =>
-    request('/api/appointments', { method: 'POST', headers: { Authorization: `Bearer ${sessionToken}` }, body: JSON.stringify(payload) }),
+
+  // Direct booking — no OTP required. Hospital calls back to confirm.
+  bookAppt:   (payload) => request('/api/appointments', { method: 'POST', body: JSON.stringify(payload) }),
   contact:    (payload) => request('/api/contact', { method: 'POST', body: JSON.stringify(payload) }),
   callback:   (payload) => request('/api/callback', { method: 'POST', body: JSON.stringify(payload) }),
 };

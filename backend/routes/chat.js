@@ -11,7 +11,7 @@ import express from 'express';
 const router = express.Router();
 
 const GEMINI_KEY   = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 const HOSPITAL_PHONE = process.env.HOSPITAL_PHONE || '+91 40 6162 6364';
 

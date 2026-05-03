@@ -1,82 +1,86 @@
-// Book an appointment. Requires Bearer session token from /api/otp/verify.
+// Book an appointment.
+// OTP is currently disabled (the hospital calls back to confirm). Re-enable by
+// uncommenting `requireAuth` below + the OTP step on the frontend.
+// Slot conflict prevention: a doctor cannot be double-booked at the same date+time.
 
 import express from 'express';
 import crypto from 'crypto';
 import { inMemory, Appointment } from '../utils/db.js';
-import { requireAuth } from '../utils/auth.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 import { sendSms } from '../utils/sms.js';
 import { sendMail } from '../utils/email.js';
+import { appointmentPatientEmail, appointmentHospitalEmail } from '../utils/emailTemplates.js';
 
 const router = express.Router();
 
-router.post('/', requireAuth, async (req, res, next) => {
-  try {
-    const sessionMobile = req.session.mobile;
-    const body = req.body || {};
-    const mobile = String(body.mobile || '').replace(/\D/g, '');
-    if (mobile !== sessionMobile) return res.status(403).json({ message: 'Mobile mismatch' });
+const REQUIRED = ['name', 'age', 'gender', 'mobile', 'department', 'date', 'time'];
 
-    const required = ['name', 'age', 'gender', 'mobile', 'department', 'date', 'time'];
-    for (const k of required) if (!body[k]) return res.status(400).json({ message: `Missing field: ${k}` });
+router.post('/', asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const mobile = String(body.mobile || '').replace(/\D/g, '');
+  if (!/^[6-9]\d{9}$/.test(mobile)) return res.status(400).json({ message: 'Invalid mobile number' });
 
-    const bookingId = 'NCH-' + crypto.randomBytes(4).toString('hex').toUpperCase();
-    const record = {
-      bookingId,
-      department: body.department,
-      doctor:     body.doctor || '',
-      date:       body.date,
-      time:       body.time,
-      name:       body.name,
-      age:        Number(body.age),
-      gender:     body.gender,
-      mobile,
-      email:      body.email || '',
-      notes:      body.notes || '',
-      status:     'pending',
-    };
+  for (const k of REQUIRED) if (!body[k]) return res.status(400).json({ message: `Missing field: ${k}` });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return res.status(400).json({ message: 'Invalid date (use YYYY-MM-DD)' });
+  if (!['Male', 'Female', 'Other'].includes(body.gender)) return res.status(400).json({ message: 'Invalid gender' });
 
-    if (inMemory.enabled) inMemory.appointments.push({ ...record, createdAt: new Date() });
-    else await Appointment.create(record);
+  // Slot conflict check (only when a specific doctor is chosen)
+  if (body.doctor) {
+    const conflict = inMemory.enabled
+      ? inMemory.appointments.find(a =>
+          a.doctor === body.doctor &&
+          a.date === body.date &&
+          a.time === body.time &&
+          ['pending', 'confirmed'].includes(a.status))
+      : await Appointment.findOne({
+          doctor: body.doctor,
+          date:   body.date,
+          time:   body.time,
+          status: { $in: ['pending', 'confirmed'] },
+        });
+    if (conflict) return res.status(409).json({ message: 'That slot is no longer available. Please pick another time.' });
+  }
 
-    // Patient SMS
-    sendSms(mobile,
-      `N Care Hospital — Appointment confirmed. ID: ${bookingId} on ${body.date} at ${body.time}. ` +
-      `Reach 15 min early with valid ID. Call ${process.env.HOSPITAL_PHONE || '040 6162 6364'} for help.`
-    ).catch(() => {});
+  const bookingId = 'NCH-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+  const record = {
+    bookingId,
+    department: body.department,
+    doctor:     body.doctor || '',
+    date:       body.date,
+    time:       body.time,
+    name:       body.name,
+    age:        Number(body.age),
+    gender:     body.gender,
+    mobile,
+    email:      body.email || '',
+    notes:      body.notes || '',
+    status:     'pending',
+  };
 
-    // Hospital email notification
-    sendMail({
-      to: process.env.HOSPITAL_NOTIFICATION_EMAIL || 'appointments@ncarehospital.com',
-      subject: `New appointment: ${bookingId} (${body.department})`,
-      text:
-        `New appointment booking received.\n\n` +
-        `Booking ID: ${bookingId}\nName: ${body.name} (${body.age}, ${body.gender})\n` +
-        `Mobile: +91 ${mobile}\nEmail: ${body.email || '—'}\n` +
-        `Department: ${body.department}\nDoctor: ${body.doctor || '— (any)'}\n` +
-        `Date / Time: ${body.date} at ${body.time}\nNotes: ${body.notes || '—'}`,
-    }).catch(() => {});
+  if (inMemory.enabled) inMemory.appointments.push({ ...record, _id: bookingId, createdAt: new Date(), updatedAt: new Date() });
+  else await Appointment.create(record);
 
-    // Patient email confirmation (if provided)
-    if (body.email) {
-      sendMail({
-        to: body.email,
-        subject: `Your appointment at N Care Hospital — ${bookingId}`,
-        html:
-          `<p>Hello ${body.name},</p>` +
-          `<p>Your appointment is confirmed at N Care Hospital, Beeramguda.</p>` +
-          `<ul>` +
-            `<li><b>Booking ID:</b> ${bookingId}</li>` +
-            `<li><b>Department:</b> ${body.department}</li>` +
-            `<li><b>Doctor:</b> ${body.doctor || 'Will be assigned at OPD'}</li>` +
-            `<li><b>Date &amp; Time:</b> ${body.date} at ${body.time}</li>` +
-          `</ul>` +
-          `<p>Please arrive 15 minutes early with a valid ID and any prior reports.</p>` +
-          `<p>— Team N Care Hospital</p>`,
-      }).catch(() => {});
-    }
+  // Patient SMS (fire & forget)
+  sendSms(mobile,
+    `N Care Hospital — Appointment received. ID: ${bookingId} on ${body.date} at ${body.time}. ` +
+    `We'll confirm shortly. Reach 15 min early with valid ID.`
+  ).catch(err => console.warn('[appt] SMS failed:', err.message));
 
-    res.json({ ok: true, bookingId });
-  } catch (err) { next(err); }
-});
+  // Patient confirmation email (HTML branded template)
+  if (body.email) {
+    const tpl = appointmentPatientEmail({ ...record });
+    sendMail({ to: body.email, subject: tpl.subject, html: tpl.html, text: tpl.text })
+      .catch(err => console.warn('[appt] Patient email failed:', err.message));
+  }
+
+  // Hospital notification email
+  const hosp = appointmentHospitalEmail({ ...record });
+  sendMail({
+    to: process.env.HOSPITAL_NOTIFICATION_EMAIL || 'appointments@ncarehospital.com',
+    subject: hosp.subject, html: hosp.html, text: hosp.text,
+  }).catch(err => console.warn('[appt] Hospital email failed:', err.message));
+
+  res.json({ ok: true, bookingId, status: 'pending' });
+}));
 
 export default router;

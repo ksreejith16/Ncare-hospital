@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { CheckCircle2, ArrowLeft, ArrowRight, Phone, Clock, MapPin, ShieldCheck } from 'lucide-react';
 import PageHeader from '../components/PageHeader.jsx';
@@ -9,8 +9,7 @@ import { toast } from '../components/Toast.jsx';
 const STEPS = [
   { num: 1, label: 'Choose' },
   { num: 2, label: 'Patient details' },
-  { num: 3, label: 'Verify mobile' },
-  { num: 4, label: 'Confirmation' },
+  { num: 3, label: 'Confirmation' },
 ];
 
 export default function BookAppointment() {
@@ -29,12 +28,6 @@ export default function BookAppointment() {
     email: '', notes: '',
   });
 
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
-  const otpRefs = useRef([]);
-  const [otpToken, setOtpToken] = useState('');
-  const [demoOtp, setDemoOtp] = useState('');
-  const [resendIn, setResendIn] = useState(0);
-  const [sessionToken, setSessionToken] = useState('');
   const [bookingId, setBookingId] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -42,12 +35,6 @@ export default function BookAppointment() {
     !form.department ? HOSPITAL.doctors : HOSPITAL.doctors.filter(d => d.department === form.department),
     [form.department]
   );
-
-  useEffect(() => {
-    if (resendIn <= 0) return;
-    const t = setTimeout(() => setResendIn(s => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resendIn]);
 
   function update(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
@@ -58,7 +45,7 @@ export default function BookAppointment() {
     setStep(2);
   }
 
-  async function sendOtp() {
+  async function submitBooking() {
     if (!form.name || form.name.length < 2) return toast('Enter a valid name', 'error');
     if (!form.age || form.age < 1) return toast('Enter a valid age', 'error');
     if (!form.gender) return toast('Please select gender', 'error');
@@ -67,58 +54,14 @@ export default function BookAppointment() {
     setBusy(true);
     try {
       if (DEMO_MODE) {
-        const code = String(Math.floor(100000 + Math.random() * 900000));
-        setDemoOtp(code);
-        console.log('[DEMO] Your OTP is:', code);
-        toast(`Demo OTP: ${code} (also in console)`);
+        // No backend configured — generate a local booking ID for demo.
+        await new Promise(r => setTimeout(r, 600));
+        setBookingId('NCH-' + Date.now().toString().slice(-8));
       } else {
-        const res = await api.sendOtp(form.mobile);
-        setOtpToken(res.token);
-        toast('OTP sent to +91 ' + form.mobile);
+        const res = await api.bookAppt(form);
+        setBookingId(res.bookingId);
       }
       setStep(3);
-      setResendIn(30);
-      setOtp(['', '', '', '', '', '']);
-      setTimeout(() => otpRefs.current[0]?.focus(), 100);
-    } catch (e) { toast(e.message, 'error'); }
-    finally { setBusy(false); }
-  }
-
-  function onOtpChange(i, v) {
-    const digit = v.replace(/\D/g, '').slice(0, 1);
-    setOtp(curr => {
-      const next = [...curr]; next[i] = digit; return next;
-    });
-    if (digit && otpRefs.current[i + 1]) otpRefs.current[i + 1].focus();
-  }
-  function onOtpKey(i, e) {
-    if (e.key === 'Backspace' && !otp[i] && otpRefs.current[i - 1]) otpRefs.current[i - 1].focus();
-  }
-  function onOtpPaste(e) {
-    const txt = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 6);
-    if (txt.length === 6) {
-      e.preventDefault();
-      setOtp(txt.split(''));
-      setTimeout(() => otpRefs.current[5]?.focus(), 0);
-    }
-  }
-
-  async function verifyAndBook() {
-    const code = otp.join('');
-    if (code.length !== 6) return toast('Enter all 6 digits', 'error');
-    setBusy(true);
-    try {
-      if (DEMO_MODE) {
-        if (code !== demoOtp) throw new Error('Invalid OTP');
-        const id = 'NCH-' + Date.now().toString().slice(-8);
-        setBookingId(id);
-      } else {
-        const v = await api.verifyOtp(otpToken, code, form.mobile);
-        setSessionToken(v.sessionToken);
-        const b = await api.bookAppt(v.sessionToken, form);
-        setBookingId(b.bookingId);
-      }
-      setStep(4);
     } catch (e) { toast(e.message, 'error'); }
     finally { setBusy(false); }
   }
@@ -130,7 +73,7 @@ export default function BookAppointment() {
     <>
       <PageHeader
         title="Book an Appointment"
-        subtitle="Three quick steps. Mobile verification keeps your booking secure."
+        subtitle="Two quick steps. Our team will call you to confirm during OPD hours."
         breadcrumb={[{ label: 'Book Appointment' }]}
       />
 
@@ -147,13 +90,6 @@ export default function BookAppointment() {
                 </div>
               ))}
             </div>
-
-            {DEMO_MODE && step === 1 && (
-              <div className="alert alert-info">
-                <ShieldCheck size={18} />
-                <div>Running in <strong>demo mode</strong> — OTP is generated locally and shown on screen. Configure <code>VITE_API_BASE</code> to use the real backend with SMS OTP.</div>
-              </div>
-            )}
 
             {/* STEP 1 */}
             {step === 1 && (
@@ -202,7 +138,7 @@ export default function BookAppointment() {
             {step === 2 && (
               <div>
                 <h3 style={{ marginBottom: 8 }}>Patient details</h3>
-                <p style={{ marginBottom: 24 }}>Tell us a bit about the patient. We'll send an OTP to your mobile to verify.</p>
+                <p style={{ marginBottom: 24 }}>Tell us a bit about the patient. We'll call you back to confirm the appointment.</p>
 
                 <div className="form-row">
                   <div className="form-group">
@@ -231,11 +167,12 @@ export default function BookAppointment() {
                     <label>Mobile Number <span className="required">*</span></label>
                     <input type="tel" inputMode="numeric" autoComplete="tel" placeholder="10-digit Indian mobile" pattern="[6-9]\d{9}"
                       value={form.mobile} onChange={e => update('mobile', e.target.value.replace(/\D/g, '').slice(0, 10))} required />
-                    <div className="form-help">We'll send a 6-digit OTP to verify this number.</div>
+                    <div className="form-help">We'll call this number to confirm your appointment.</div>
                   </div>
                   <div className="form-group">
                     <label>Email (optional)</label>
                     <input type="email" autoComplete="email" value={form.email} onChange={e => update('email', e.target.value)} />
+                    <div className="form-help">We'll email a confirmation if you provide one.</div>
                   </div>
                 </div>
 
@@ -246,8 +183,8 @@ export default function BookAppointment() {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
                   <button className="btn btn-outline" onClick={() => setStep(1)}><ArrowLeft size={16} /> Back</button>
-                  <button className="btn btn-primary" onClick={sendOtp} disabled={busy}>
-                    {busy ? 'Sending OTP…' : <>Send OTP <ArrowRight size={16} /></>}
+                  <button className="btn btn-primary" onClick={submitBooking} disabled={busy}>
+                    {busy ? 'Submitting…' : <>Submit Booking <CheckCircle2 size={16} /></>}
                   </button>
                 </div>
               </div>
@@ -255,46 +192,6 @@ export default function BookAppointment() {
 
             {/* STEP 3 */}
             {step === 3 && (
-              <div>
-                <h3 style={{ marginBottom: 8 }}>Verify your mobile</h3>
-                <p style={{ marginBottom: 8 }}>We've sent a 6-digit OTP to <strong>+91 {form.mobile}</strong>.</p>
-                <button className="btn btn-sm" style={{ color: 'var(--primary)', marginBottom: 16 }} onClick={() => setStep(2)}>Change number</button>
-
-                <div className="otp-group" onPaste={onOtpPaste}>
-                  {otp.map((v, i) => (
-                    <input
-                      key={i}
-                      ref={el => otpRefs.current[i] = el}
-                      type="tel"
-                      inputMode="numeric"
-                      maxLength="1"
-                      autoComplete={i === 0 ? 'one-time-code' : 'off'}
-                      value={v}
-                      onChange={e => onOtpChange(i, e.target.value)}
-                      onKeyDown={e => onOtpKey(i, e)}
-                    />
-                  ))}
-                </div>
-
-                <div style={{ textAlign: 'center', fontSize: '.9rem', color: 'var(--text-light)' }}>
-                  Didn't receive it?{' '}
-                  {resendIn > 0
-                    ? <span>Resend in {resendIn}s</span>
-                    : <button onClick={sendOtp} style={{ color: 'var(--primary)', fontWeight: 600 }}>Resend OTP</button>
-                  }
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32 }}>
-                  <button className="btn btn-outline" onClick={() => setStep(2)}><ArrowLeft size={16} /> Back</button>
-                  <button className="btn btn-primary" onClick={verifyAndBook} disabled={busy}>
-                    {busy ? 'Verifying…' : <>Verify &amp; Confirm <CheckCircle2 size={16} /></>}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* STEP 4 */}
-            {step === 4 && (
               <div style={{ textAlign: 'center', padding: '24px 0' }}>
                 <div style={{
                   width: 80, height: 80, borderRadius: '50%',
@@ -303,7 +200,7 @@ export default function BookAppointment() {
                 }}>
                   <CheckCircle2 size={40} />
                 </div>
-                <h2>Appointment Confirmed!</h2>
+                <h2>Booking received!</h2>
                 <p style={{ marginBottom: 8 }}>Your booking ID is</p>
                 <div style={{
                   display: 'inline-block', padding: '8px 20px', background: 'var(--primary-light)',
@@ -322,9 +219,13 @@ export default function BookAppointment() {
                   <div><strong>Date &amp; Time:</strong> {form.date} at {form.time}</div>
                 </div>
 
-                <p style={{ marginTop: 24, fontSize: '.92rem' }}>
-                  We'll send an SMS confirmation to your mobile shortly. Please reach the hospital 15 minutes before your slot with a valid ID.
-                </p>
+                <div className="alert alert-info" style={{ marginTop: 24, textAlign: 'left' }}>
+                  <ShieldCheck size={18} />
+                  <div>
+                    <strong>What happens next?</strong> Our team will call you on <strong>+91 {form.mobile}</strong> within 30 minutes during OPD hours
+                    ({HOSPITAL.hours.opd}) to confirm your appointment. Please reach the hospital 15 minutes before your slot with a valid ID.
+                  </div>
+                </div>
 
                 <div className="btn-group" style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 24, flexWrap: 'wrap' }}>
                   <Link to="/" className="btn btn-outline">Back to Home</Link>
@@ -368,15 +269,14 @@ export default function BookAppointment() {
             <div style={{ background: 'var(--bg-soft)', padding: 24, borderRadius: 16, fontSize: '.88rem', color: 'var(--text-muted)' }}>
               <strong style={{ color: 'var(--text)', display: 'block', marginBottom: 8 }}>What happens next?</strong>
               <ol style={{ paddingLeft: 18, display: 'grid', gap: 6 }}>
-                <li>You'll get an SMS with your booking ID.</li>
-                <li>Our team confirms within 30 minutes during OPD hours.</li>
+                <li>You'll see a booking ID on screen.</li>
+                <li>Our team calls within 30 min (OPD hours) to confirm.</li>
                 <li>Reach the hospital 15 minutes before the slot.</li>
                 <li>Carry a valid ID and any prior reports.</li>
               </ol>
             </div>
           </aside>
         </div>
-
       </section>
     </>
   );
